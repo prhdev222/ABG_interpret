@@ -204,6 +204,81 @@ function abgInterpretation({ ph, pco2, hco3, pao2, fio2, na, cl, albumin }) {
 
   suggestions.push("ให้ประเมินร่วมกับภาพรวมผู้ป่วย เช่น work of breathing, hemodynamics, mental status, secretion, compliance และ X-ray/ultrasound ปอด");
 
+  const disorders = [];
+  const pl = primary.toLowerCase();
+  if (pl.includes("metabolic acidosis")) disorders.push({ label: "Metabolic Acidosis", color: "rose", isPrimary: true });
+  if (pl.includes("respiratory acidosis")) disorders.push({ label: "Respiratory Acidosis", color: "orange", isPrimary: true });
+  if (pl.includes("metabolic alkalosis")) disorders.push({ label: "Metabolic Alkalosis", color: "violet", isPrimary: true });
+  if (pl.includes("respiratory alkalosis")) disorders.push({ label: "Respiratory Alkalosis", color: "sky", isPrimary: true });
+  for (const n of notes) {
+    const nl = n.toLowerCase();
+    if (nl.includes("respiratory alkalosis") && nl.includes("ร่วม") && !disorders.some(d => d.label === "Respiratory Alkalosis"))
+      disorders.push({ label: "Respiratory Alkalosis", color: "sky", isPrimary: false });
+    if (nl.includes("respiratory acidosis") && nl.includes("ร่วม") && !disorders.some(d => d.label === "Respiratory Acidosis"))
+      disorders.push({ label: "Respiratory Acidosis", color: "orange", isPrimary: false });
+    if (nl.includes("metabolic acidosis") && nl.includes("ร่วม") && !disorders.some(d => d.label === "Metabolic Acidosis"))
+      disorders.push({ label: "Metabolic Acidosis", color: "rose", isPrimary: false });
+    if (nl.includes("metabolic alkalosis") && nl.includes("ร่วม") && !disorders.some(d => d.label === "Metabolic Alkalosis"))
+      disorders.push({ label: "Metabolic Alkalosis", color: "violet", isPrimary: false });
+  }
+  if (calculations.pfRatio != null && calculations.pfRatio < 300)
+    disorders.push({ label: "Oxygenation Defect", color: "amber", isPrimary: false });
+
+  const differentials = [];
+  if (disorders.some(d => d.label === "Metabolic Acidosis")) {
+    if (calculations.ag != null && calculations.ag > 12)
+      differentials.push({ category: "High AG Metabolic Acidosis (HAGMA)", color: "rose", items: [
+        "DKA (Diabetic Ketoacidosis)", "Lactic acidosis (sepsis, shock, seizure, ischemia)",
+        "Uremia / Renal failure", "Toxic ingestion (methanol, ethylene glycol, salicylate)", "Starvation ketoacidosis",
+      ]});
+    if (calculations.ag == null || calculations.ag <= 12 || (calculations.deltaRatio != null && calculations.deltaRatio < 0.8))
+      differentials.push({ category: "Non-AG Metabolic Acidosis (NAGMA)", color: "rose", items: [
+        "Diarrhea / GI bicarbonate loss", "RTA (Renal Tubular Acidosis)",
+        "Normal saline overuse (hyperchloremic)", "Ureteral diversion", "Carbonic anhydrase inhibitors",
+      ]});
+  }
+  if (disorders.some(d => d.label === "Metabolic Alkalosis"))
+    differentials.push({ category: "Metabolic Alkalosis", color: "violet", items: [
+      "Vomiting / NG suction (Cl-responsive)", "Diuretic use", "Volume contraction",
+      "Hypokalemia", "Post-hypercapnia correction", "Mineralocorticoid excess (Cl-resistant)",
+    ]});
+  if (disorders.some(d => d.label === "Respiratory Acidosis"))
+    differentials.push({ category: "Respiratory Acidosis (Hypoventilation)", color: "orange", items: [
+      "COPD exacerbation", "Severe asthma / bronchospasm",
+      "Neuromuscular weakness (GBS, myasthenia gravis)", "Sedation / Drug overdose",
+      "Airway obstruction / mucus plugging", "Chest wall disease / Obesity hypoventilation", "Pneumothorax",
+    ]});
+  if (disorders.some(d => d.label === "Respiratory Alkalosis")) {
+    const hasPE = pao2 != null && pao2 < 80 && calculations.aAGradient != null && calculations.aAGradient > 20;
+    const raItems = [];
+    if (hasPE) raItems.push("⚠ Pulmonary Embolism (PE) — มี hypoxemia + A-a gradient สูง สนับสนุน");
+    raItems.push("Pain / Anxiety / Panic attack", "Sepsis (early phase)", "Pneumonia / Lung infection");
+    if (!hasPE) raItems.push("Pulmonary Embolism (PE)");
+    raItems.push("CNS disease (stroke, SAH, meningitis)", "Liver disease / Hepatic encephalopathy", "Pregnancy / Progesterone effect");
+    differentials.push({ category: "Respiratory Alkalosis (Hyperventilation)", color: "sky", items: raItems });
+  }
+  if (pao2 != null && pao2 < 60) {
+    const hypoItems = [];
+    if (calculations.aAGradient != null && calculations.aAGradient > 20) {
+      hypoItems.push("V/Q mismatch: PE, pneumonia, ARDS, pulmonary edema");
+      hypoItems.push("Shunt: ARDS, intracardiac shunt (ASD/PFO), hepatopulmonary syndrome");
+      hypoItems.push("Diffusion impairment: ILD, pulmonary fibrosis");
+    } else {
+      hypoItems.push("Hypoventilation (A-a gradient ปกติ)");
+      hypoItems.push("Low FiO₂ / High altitude");
+    }
+    differentials.push({ category: "Hypoxemia (PaO₂ < 60)", color: "amber", items: hypoItems });
+  }
+  if (calculations.pfRatio != null && calculations.pfRatio < 300) {
+    const ardsLabel = calculations.pfRatio < 100 ? "Severe" : calculations.pfRatio < 200 ? "Moderate" : "Mild";
+    differentials.push({ category: `ARDS Assessment (Berlin Criteria) — ${ardsLabel}`, color: "amber", items: [
+      `P/F = ${format1(calculations.pfRatio)} → เข้าเกณฑ์ ${ardsLabel} ARDS (ต้องมี PEEP ≥ 5)`,
+      "ต้องมี bilateral opacities on CXR/CT ที่ไม่อธิบายได้ด้วย effusion/atelectasis อย่างเดียว",
+      "Onset ภายใน 1 สัปดาห์หลัง insult หรือ worsening respiratory symptoms",
+      "ไม่ได้อธิบายได้ด้วย cardiac failure / fluid overload เพียงอย่างเดียว",
+    ]});
+  }
+
   return {
     primary: `${acidBaseStatus.toUpperCase()}: ${primary}`,
     details: notes,
@@ -211,6 +286,8 @@ function abgInterpretation({ ph, pco2, hco3, pao2, fio2, na, cl, albumin }) {
     suggestions,
     calculations,
     formulas,
+    disorders,
+    differentials,
   };
 }
 
@@ -819,6 +896,70 @@ export default function ABGVentInterpreterApp() {
                 </div>
                 <div className="text-lg font-bold">{abg.primary}</div>
               </div>
+
+              {/* Disorder Badges */}
+              {abg.disorders && abg.disorders.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {abg.disorders.map((d, i) => {
+                    const badgeColors = {
+                      rose: "bg-rose-100 text-rose-800 border-rose-300",
+                      orange: "bg-orange-100 text-orange-800 border-orange-300",
+                      violet: "bg-violet-100 text-violet-800 border-violet-300",
+                      sky: "bg-sky-100 text-sky-800 border-sky-300",
+                      amber: "bg-amber-100 text-amber-800 border-amber-300",
+                    };
+                    return (
+                      <span key={i} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold ${badgeColors[d.color] || "bg-slate-100 text-slate-700 border-slate-300"}`}>
+                        <span className={`h-2 w-2 rounded-full ${
+                          d.color === "rose" ? "bg-rose-500" :
+                          d.color === "orange" ? "bg-orange-500" :
+                          d.color === "violet" ? "bg-violet-500" :
+                          d.color === "sky" ? "bg-sky-500" :
+                          "bg-amber-500"
+                        }`} />
+                        {d.label}
+                        {d.isPrimary && <span className="text-[10px] opacity-60">(primary)</span>}
+                        {!d.isPrimary && <span className="text-[10px] opacity-60">(ร่วม)</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Differential Diagnoses */}
+              {abg.differentials && abg.differentials.length > 0 && (
+                <Card className="rounded-2xl shadow-sm border-indigo-200/50 overflow-hidden">
+                  <CardHeader className="py-4 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100">
+                    <CardTitle className="text-base flex items-center gap-2 text-indigo-900">
+                      <Stethoscope className="h-4 w-4 text-indigo-600" /> Differential Diagnosis — โรค/สาเหตุที่ควรนึกถึง
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-4 space-y-4">
+                    {abg.differentials.map((group, gi) => {
+                      const groupColors = {
+                        rose: { border: "border-l-rose-400", bg: "bg-rose-50/40", title: "text-rose-800" },
+                        violet: { border: "border-l-violet-400", bg: "bg-violet-50/40", title: "text-violet-800" },
+                        orange: { border: "border-l-orange-400", bg: "bg-orange-50/40", title: "text-orange-800" },
+                        sky: { border: "border-l-sky-400", bg: "bg-sky-50/40", title: "text-sky-800" },
+                        amber: { border: "border-l-amber-400", bg: "bg-amber-50/40", title: "text-amber-800" },
+                      };
+                      const gc = groupColors[group.color] || groupColors.amber;
+                      return (
+                        <div key={gi} className={`rounded-xl border border-l-4 ${gc.border} ${gc.bg} p-4`}>
+                          <div className={`font-bold text-sm mb-2 ${gc.title}`}>{group.category}</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {group.items.map((item, ii) => (
+                              <div key={ii} className={`text-xs text-slate-700 rounded-lg bg-white/60 px-3 py-2 border border-slate-200/50 ${item.startsWith("⚠") ? "font-bold text-rose-700 bg-rose-50 border-rose-200" : ""}`}>
+                                {item.startsWith("⚠") ? item : `• ${item}`}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Calculated values */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
